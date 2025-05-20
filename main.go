@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"flag"
 	"fmt"
 	"log"
 	"os"
@@ -18,20 +19,48 @@ const CONFIG_PERMISSION = 0755
 const ENV_FILE = "env"
 const ENV_PERMISSION = 0600
 
-func init() {
-	log.SetFlags(0)
-	log.SetPrefix(os.Args[0] + ": ")
-}
+type DetailsLevel int
+
+const (
+	Default DetailsLevel = iota
+	Detailed
+	MoreDetailed
+	FullDetails
+)
 
 func main() {
+	log.SetFlags(0)
+	log.SetPrefix(os.Args[0] + ": ")
+
+	flag.Usage = func() {
+		fmt.Fprintf(os.Stderr, "usage: %v [-d|-dd|-ddd] [QUESTION...]\n", os.Args[0])
+		flag.PrintDefaults()
+		fmt.Fprintf(os.Stderr, "NOTE: You can specify only one of d flags\n")
+	}
+	var dFlag, ddFlag, dddFlag bool
+	flag.BoolVar(&dFlag, "d", false, "ask model to include more details")
+	flag.BoolVar(&ddFlag, "dd", false, "ask model to include even more details")
+	flag.BoolVar(&dddFlag, "ddd", false, "ask model to include as much details as possible (default Gemini settings)")
+	flag.Parse()
+
+	modelReplyDetailsLevel := Default
+	switch {
+	case dFlag:
+		modelReplyDetailsLevel = Detailed
+	case ddFlag:
+		modelReplyDetailsLevel = MoreDetailed
+	case dddFlag:
+		modelReplyDetailsLevel = FullDetails
+	}
+
 	envFilePath, err := initUserEnv()
 	exitError(err)
 
-	if len(os.Args) < 2 {
-		log.Fatalln("Not enough arguments, please provide a question")
+	if len(flag.Args()) == 0 {
+		flag.Usage()
 	}
 
-	apiConfig, err := newApiConfigFromEnv(envFilePath)
+	apiConfig, err := newApiConfigFromEnv(envFilePath, modelReplyDetailsLevel)
 	exitError(err)
 
 	ctx := context.Background()
@@ -41,19 +70,11 @@ func main() {
 	})
 	exitError(err)
 
-	config := &genai.GenerateContentConfig{
-		SystemInstruction: genai.NewContentFromText(
-			"You are a CLI helping tool, give me very short (1-2 lines) answers to user questions,"+
-				" with an example command/code snippet if applicable.",
-			genai.RoleUser,
-		),
-	}
-
 	result, err := client.Models.GenerateContent(
 		ctx,
 		apiConfig.modelName,
 		genai.Text(strings.Join(os.Args[1:], " ")),
-		config,
+		apiConfig.modelConfig,
 	)
 	exitError(err)
 
@@ -103,11 +124,12 @@ func setDefaultEnv(envFilePath string) error {
 }
 
 type ApiConfig struct {
-	apiKey    string
-	modelName string
+	apiKey      string
+	modelName   string
+	modelConfig *genai.GenerateContentConfig
 }
 
-func newApiConfigFromEnv(envFilePath string) (ApiConfig, error) {
+func newApiConfigFromEnv(envFilePath string, detailsLevel DetailsLevel) (ApiConfig, error) {
 	err := godotenv.Load(envFilePath)
 	if err != nil {
 		return ApiConfig{},
@@ -121,7 +143,33 @@ func newApiConfigFromEnv(envFilePath string) (ApiConfig, error) {
 			fmt.Errorf("Either %v and/or %v isn't set, please check your config file (%v)", ENV_API_KEY, ENV_MODEL_NAME, envFilePath)
 	}
 
-	return ApiConfig{apiKey, modelName}, nil
+	var systemInstructions *genai.Content
+	switch detailsLevel {
+	case Default:
+		systemInstructions = genai.NewContentFromText(
+			"You are a CLI helping tool, give me very short (1-2 lines) answers to user questions,"+
+				" with an example command/code snippet if applicable.",
+			genai.RoleUser,
+		)
+	case Detailed:
+		systemInstructions = genai.NewContentFromText(
+			"You are a CLI helping tool, give me short (3-5 lines) answer to user question,"+
+				" with an example command/code snippet if applicable.",
+			genai.RoleUser,
+		)
+	case MoreDetailed:
+		systemInstructions = genai.NewContentFromText(
+			"You are a CLI helping tool, give me somewhat detailed (7-10 lines) answer to user question,"+
+				" with an example command/code snippets",
+			genai.RoleUser,
+		)
+	}
+
+	config := &genai.GenerateContentConfig{
+		SystemInstruction: systemInstructions,
+	}
+
+	return ApiConfig{apiKey, modelName, config}, nil
 }
 
 func exitError(err error) {
