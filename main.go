@@ -35,12 +35,13 @@ func main() {
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "usage: %v [-d|-dd|-ddd] [QUESTION...]\n", os.Args[0])
 		flag.PrintDefaults()
-		fmt.Fprintf(os.Stderr, "NOTE: You can specify only one of d flags\n")
+		fmt.Fprintf(os.Stderr, "NOTE: You can specify only one of d flags.\n")
+		os.Exit(1)
 	}
 	var dFlag, ddFlag, dddFlag bool
-	flag.BoolVar(&dFlag, "d", false, "ask model to include more details")
-	flag.BoolVar(&ddFlag, "dd", false, "ask model to include even more details")
-	flag.BoolVar(&dddFlag, "ddd", false, "ask model to include as much details as possible (default Gemini settings)")
+	flag.BoolVar(&dFlag, "d", false, "ask model to include more details.")
+	flag.BoolVar(&ddFlag, "dd", false, "ask model to include even more details.")
+	flag.BoolVar(&dddFlag, "ddd", false, "ask model to include as much details as possible (default Gemini settings).")
 	flag.Parse()
 
 	modelReplyDetailsLevel := Default
